@@ -65,20 +65,20 @@ object DrawingApp extends App {
     }
   }
 
-	def clearSurface(surface: Surface) = {
-			withContext(surface) { cr =>
-				cr.setSource(1, 1, 1)
-				cr.paint()
-			}
-	}
-	
-	def drawBrush(surface: Surface, w: Widget, x: Double, y: Double) = {
-			withContext(surface) { cr =>
-				cr.rectangle(x - 3, y - 3, 6, 6)
-				cr.fill()
-			}
-			w.queueDrawArea(x.toInt - 3, y.toInt - 3, 6, 6)
-	}
+  def clearSurface(surface: Surface) = {
+      withContext(surface) { cr =>
+        cr.setSource(1, 1, 1)
+        cr.paint()
+      }
+  }
+  
+  def drawBrush(surface: Surface, w: Widget, x: Double, y: Double) = {
+      withContext(surface) { cr =>
+        cr.rectangle(x - 3, y - 3, 6, 6)
+        cr.fill()
+      }
+      w.queueDrawArea(x.toInt - 3, y.toInt - 3, 6, 6)
+  }
 
 
   Gtk.init(args);
@@ -86,10 +86,10 @@ object DrawingApp extends App {
   val window = new Window
   window setTitle "Drawing Area"
   window.connect(new Window.DeleteEvent {
-	  override def onDeleteEvent(source: Widget, event: Event) = {
-			  Gtk.mainQuit
-			  false
-	  }
+    override def onDeleteEvent(source: Widget, event: Event) = {
+        Gtk.mainQuit
+        false
+    }
   })
   window.setBorderWidth(8)
 
@@ -124,11 +124,11 @@ object DrawingApp extends App {
     }
   })
   drawingArea.connect(new Widget.MotionNotifyEvent {
-	  def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
-			  if (null != drawingSurface)
-				  drawBrush(drawingSurface, source, event.getX, event.getY)
-			  null != drawingSurface
-	  }
+    def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
+        if (null != drawingSurface)
+          drawBrush(drawingSurface, source, event.getX, event.getY)
+        null != drawingSurface
+    }
   })
   drawingArea.connect(new Widget.ButtonPressEvent {
     def onButtonPressEvent(source: Widget, event: EventButton) = {
