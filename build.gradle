@@ -1,0 +1,23 @@
+apply plugin: 'scala'
+
+repositories {
+  flatDir { dirs '/usr/share/java' }
+  mavenCentral()
+}
+
+dependencies {
+  compile 'org.scala-lang:scala-library:2.11.8'
+  compile 'gtk:gtk:4.1'
+}
+
+task run(type: JavaExec, dependsOn: classes) {
+  main = 'io.github.tszypenbejl.gtkcustomdrawingexample.DrawingApp'
+  classpath sourceSets.main.runtimeClasspath
+}
+
+jar {
+  manifest {
+    attributes 'Main-Class': 'io.github.tszypenbejl.gtkcustomdrawingexample.DrawingApp'
+    attributes 'Class-Path': '/usr/share/scala/lib/scala-library.jar /usr/share/java/gtk-4.1.jar'
+  }
+}
