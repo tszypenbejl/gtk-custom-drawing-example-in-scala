@@ -73,11 +73,14 @@ object DrawingApp extends App {
   }
   
   def drawBrush(surface: Surface, w: Widget, x: Double, y: Double) = {
+      val brushSize = 6;
+      val rectX = x.toInt - brushSize / 2
+      val rectY = y.toInt - brushSize / 2
       withContext(surface) { cr =>
-        cr.rectangle(x - 3, y - 3, 6, 6)
+        cr.rectangle(rectX, rectY, brushSize, brushSize)
         cr.fill()
       }
-      w.queueDrawArea(x.toInt - 3, y.toInt - 3, 6, 6)
+      w.queueDrawArea(rectX, rectY, brushSize, brushSize)
   }
 
 
