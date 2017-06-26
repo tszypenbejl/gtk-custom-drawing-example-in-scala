@@ -66,21 +66,38 @@ object DrawingApp extends App {
   }
 
   def clearSurface(surface: Surface) = {
-      withContext(surface) { cr =>
-        cr.setSource(1, 1, 1)
-        cr.paint()
-      }
+    withContext(surface) { cr =>
+      cr.setSource(1, 1, 1)
+      cr.paint()
+    }
   }
   
   def drawBrush(surface: Surface, w: Widget, x: Double, y: Double) = {
-      val brushSize = 6;
-      val rectX = x.toInt - brushSize / 2
-      val rectY = y.toInt - brushSize / 2
-      withContext(surface) { cr =>
-        cr.rectangle(rectX, rectY, brushSize, brushSize)
-        cr.fill()
+    val brushSize = 6;
+    val rectX = x.toInt - brushSize / 2
+    val rectY = y.toInt - brushSize / 2
+    withContext(surface) { cr =>
+      cr.rectangle(rectX, rectY, brushSize, brushSize)
+      cr.fill()
+    }
+    w.queueDrawArea(rectX, rectY, brushSize, brushSize)
+  }
+
+  def resizeSurface(oldSurface: Surface, width: Int, height: Int) = {
+    val newSurface = oldSurface.createSimilar(Content.COLOR, width, height)
+    try {
+      clearSurface(newSurface)
+      withContext(newSurface) { cr =>
+        cr.setSource(drawingSurface, 0, 0)
+        cr.paint()
       }
-      w.queueDrawArea(rectX, rectY, brushSize, brushSize)
+      Workarounds releaseSurface oldSurface
+    } catch {
+      case e: Exception =>
+        Workarounds releaseSurface newSurface
+        throw e
+    }
+    newSurface
   }
 
 
@@ -90,8 +107,8 @@ object DrawingApp extends App {
   window setTitle "Drawing Area"
   window.connect(new Window.DeleteEvent {
     override def onDeleteEvent(source: Widget, event: Event) = {
-        Gtk.mainQuit
-        false
+      Gtk.mainQuit
+      false
     }
   })
   window.setBorderWidth(8)
@@ -112,7 +129,7 @@ object DrawingApp extends App {
             source.getAllocatedWidth, source.getAllocatedHeight)
         clearSurface(drawingSurface)
       }
-      cr.setSource(drawingSurface, 0.0, 0.0)
+      cr.setSource(drawingSurface, 0, 0)
       cr.paint()
       false
     }
@@ -120,8 +137,8 @@ object DrawingApp extends App {
   Workarounds.connect(drawingArea, new Window.ConfigureEvent {
     def onConfigureEvent(source: Widget, event: EventConfigure ) = {
       if (null != drawingSurface) {
-        Workarounds releaseSurface drawingSurface
-        drawingSurface = null
+        drawingSurface = resizeSurface(drawingSurface,
+          source.getAllocatedWidth, source.getAllocatedHeight)
       }
       true
     }
