@@ -1,26 +1,14 @@
 package io.github.tszypenbejl.gtkcustomdrawingexample
 
-import org.gnome.gtk.Gtk
-import org.gnome.gtk.Widget
-import org.gnome.gtk.Frame
-import org.gnome.gtk.Window
-import org.gnome.gtk.DrawingArea
-import org.gnome.gtk.ShadowType
-import org.gnome.gdk.Event
-import org.gnome.gdk.EventButton
-import org.gnome.gdk.EventMotion
-import org.gnome.gdk.MouseButton
-import org.gnome.gdk.EventMask
-import org.gnome.gdk.EventConfigure
-import org.freedesktop.cairo.Context
-import org.freedesktop.cairo.Content
-import org.freedesktop.cairo.Surface
+import org.gnome.gtk.{Application, Button, DrawingArea, Frame, Gtk, ShadowType, VBox, Widget, Window}
+import org.gnome.gdk.{Event, EventButton, EventConfigure, EventMask, EventMotion, MouseButton}
+import org.freedesktop.cairo.{Content, Context, Surface}
 
 
 private object Workarounds {
   val surfaceReleaseMethod =
     Class.forName("org.freedesktop.cairo.Surface").getDeclaredMethod("release")
-  surfaceReleaseMethod setAccessible true
+  surfaceReleaseMethod.setAccessible(true)
 
   def releaseSurface(surface: Surface) = {
     // Cannot just call surface.release because it is protected for some reason
@@ -30,7 +18,7 @@ private object Workarounds {
 
   val contextReleaseMethod =
     Class.forName("org.freedesktop.cairo.Context").getDeclaredMethod("release")
-  contextReleaseMethod setAccessible true
+  contextReleaseMethod.setAccessible(true)
 
   def releaseContext(context: Context) = {
     // Cannot just call context.release because it is protected for some reason
@@ -43,7 +31,7 @@ private object Workarounds {
       classOf[org.gnome.gtk.Widget],
       Class.forName("org.gnome.gtk.GtkWidget$ConfigureEventSignal"),
       false.getClass)
-  gtkWidgetConnectMethod setAccessible true
+  gtkWidgetConnectMethod.setAccessible(true)
 
   def connect(widget: Widget, event: Window.ConfigureEvent) = {
     // For some reason there is no easy way to connect configure event handler
@@ -55,13 +43,14 @@ private object Workarounds {
 
 
 object DrawingApp extends App {
+  Gtk.init(null)
 
   def withContext(surface: Surface)(op: Context => Unit) = {
     val cr = new Context(surface)
     try {
       op(cr)
     } finally {
-      Workarounds releaseContext cr
+      Workarounds.releaseContext(cr)
     }
   }
 
@@ -88,7 +77,7 @@ object DrawingApp extends App {
     try {
       clearSurface(newSurface)
       withContext(newSurface) { cr =>
-        cr.setSource(drawingSurface, 0, 0)
+        cr.setSource(oldSurface, 0, 0)
         cr.paint()
       }
       Workarounds releaseSurface oldSurface
@@ -101,70 +90,86 @@ object DrawingApp extends App {
   }
 
 
-  Gtk.init(args);
-
-  val window = new Window
-  window setTitle "Drawing Area"
-  window.connect(new Window.DeleteEvent {
-    override def onDeleteEvent(source: Widget, event: Event) = {
-      Gtk.mainQuit
-      false
-    }
-  })
-  window.setBorderWidth(8)
-
-  val frame = new Frame(null)
-  frame.setShadowType(ShadowType.IN)
-  window add frame
-
-  var drawingSurface: Surface = null
-
-  val drawingArea = new DrawingArea
-  drawingArea.setSizeRequest(100, 100)
-  frame add drawingArea
-  drawingArea.connect(new Widget.Draw {
-    override def onDraw(source: Widget, cr: Context) = {
-      if (null == drawingSurface) {
-        drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
-            source.getAllocatedWidth, source.getAllocatedHeight)
-        clearSurface(drawingSurface)
-      }
-      cr.setSource(drawingSurface, 0, 0)
-      cr.paint()
-      false
-    }
-  })
-  Workarounds.connect(drawingArea, new Window.ConfigureEvent {
-    def onConfigureEvent(source: Widget, event: EventConfigure ) = {
-      if (null != drawingSurface) {
-        drawingSurface = resizeSurface(drawingSurface,
-          source.getAllocatedWidth, source.getAllocatedHeight)
-      }
-      true
-    }
-  })
-  drawingArea.connect(new Widget.MotionNotifyEvent {
-    def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
-        if (null != drawingSurface)
-          drawBrush(drawingSurface, source, event.getX, event.getY)
-        null != drawingSurface
-    }
-  })
-  drawingArea.connect(new Widget.ButtonPressEvent {
-    def onButtonPressEvent(source: Widget, event: EventButton) = {
-      if (null != drawingSurface) {
-        event.getButton match {
-          case MouseButton.LEFT => drawBrush(drawingSurface, source, event.getX, event.getY)
-          case MouseButton.RIGHT => { clearSurface(drawingSurface); source.queueDraw() }
-          case _ => ()
+  val gtkApp = new Application("io.github.tszypenbejl.gtkcustomdrawingexample")
+  gtkApp.connect(new Application.Startup {
+    override def onStartup(source: Application): Unit = {
+      val window = new Window
+      source.addWindow(window)
+      window.setTitle("Drawing Area")
+      window.setBorderWidth(8)
+      window.connect(new Window.DeleteEvent {
+        override def onDeleteEvent(source: Widget, event: Event): Boolean = {
+          source.destroy()
+          true
         }
-      }
-      null != drawingSurface
+      })
+
+      val vbox = new VBox(false, 3)
+      window.add(vbox)
+
+      val frame = new Frame(null)
+      frame.setShadowType(ShadowType.IN)
+      vbox.packStart(frame, true, true, 0)
+
+      var drawingSurface: Surface = null
+
+      val drawingArea = new DrawingArea
+      drawingArea.setSizeRequest(300, 200)
+      drawingArea.connect(new Widget.Draw {
+        override def onDraw(source: Widget, cr: Context) = {
+          if (null == drawingSurface) {
+            drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
+              source.getAllocatedWidth, source.getAllocatedHeight)
+            clearSurface(drawingSurface)
+          }
+          cr.setSource(drawingSurface, 0, 0)
+          cr.paint()
+          false
+        }
+      })
+      Workarounds.connect(drawingArea, new Window.ConfigureEvent {
+        def onConfigureEvent(source: Widget, event: EventConfigure ) = {
+          if (null != drawingSurface) {
+            drawingSurface = resizeSurface(drawingSurface,
+              source.getAllocatedWidth, source.getAllocatedHeight)
+          }
+          true
+        }
+      })
+      drawingArea.connect(new Widget.MotionNotifyEvent {
+        def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
+          if (null != drawingSurface)
+            drawBrush(drawingSurface, source, event.getX, event.getY)
+          null != drawingSurface
+        }
+      })
+      drawingArea.connect(new Widget.ButtonPressEvent {
+        def onButtonPressEvent(source: Widget, event: EventButton) = {
+          if (null != drawingSurface) {
+            event.getButton match {
+              case MouseButton.LEFT => drawBrush(drawingSurface, source, event.getX, event.getY)
+              case MouseButton.RIGHT => { clearSurface(drawingSurface); source.queueDraw() }
+              case _ => ()
+            }
+          }
+          null != drawingSurface
+        }
+      })
+      drawingArea.addEvents(EventMask.BUTTON_PRESS)
+      drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
+      frame.add(drawingArea)
+
+      val button = new Button("Quit")
+      button.connect(new Button.Clicked {
+        override def onClicked(source: Button): Unit = window.destroy()
+      })
+      vbox.packStart(button, false, false, 0)
+
+      window.showAll()
     }
   })
-  drawingArea.addEvents(EventMask.BUTTON_PRESS)
-  drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
-
-  window.showAll()
-  Gtk.main()
+  gtkApp.connect(new Application.Activate {
+    override def onActivate(source: Application): Unit = ()
+  })
+  System.exit(gtkApp.run(args))
 }
