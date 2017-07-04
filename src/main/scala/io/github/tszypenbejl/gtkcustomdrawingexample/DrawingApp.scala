@@ -6,43 +6,42 @@ import org.freedesktop.cairo.{Content, Context, Surface}
 
 
 private object Workarounds {
-  val surfaceReleaseMethod =
+  private val surfaceReleaseMethod =
     Class.forName("org.freedesktop.cairo.Surface").getDeclaredMethod("release")
-  surfaceReleaseMethod.setAccessible(true)
-
-  def releaseSurface(surface: Surface) = {
-    // Cannot just call surface.release because it is protected for some reason
-    surfaceReleaseMethod invoke surface
-  }
-
-
-  val contextReleaseMethod =
+  private val contextReleaseMethod =
     Class.forName("org.freedesktop.cairo.Context").getDeclaredMethod("release")
-  contextReleaseMethod.setAccessible(true)
-
-  def releaseContext(context: Context) = {
-    // Cannot just call context.release because it is protected for some reason
-    contextReleaseMethod invoke context
-  }
-
-
-  val gtkWidgetConnectMethod =
+  private val gtkWidgetConnectMethod =
     Class.forName("org.gnome.gtk.GtkWidget").getDeclaredMethod("connect",
       classOf[org.gnome.gtk.Widget],
       Class.forName("org.gnome.gtk.GtkWidget$ConfigureEventSignal"),
       false.getClass)
+
+  surfaceReleaseMethod.setAccessible(true)
+  contextReleaseMethod.setAccessible(true)
   gtkWidgetConnectMethod.setAccessible(true)
 
-  def connect(widget: Widget, event: Window.ConfigureEvent) = {
-    // For some reason there is no easy way to connect configure event handler
-    // to a Widget that does not happen to be a window
-    gtkWidgetConnectMethod.invoke(
-        null, widget, event, new java.lang.Boolean(false))
+  // Surface.release method is protected for some reason.
+  implicit class SurfaceWorkarounds(surface: Surface) {
+    def release() = surfaceReleaseMethod.invoke(surface)
+  }
+
+  // Context.release method is protected for some reason.
+  implicit class ContextWorkarounds(context: Context) {
+    def release() = contextReleaseMethod.invoke(context)
+  }
+
+  // For some reason there is no easy way to connect configure event handler to a Widget
+  // that does not happen to be a window.
+  implicit class WidgetWorkarounds(widget: Widget) {
+    def connect(event: Window.ConfigureEvent) =
+      gtkWidgetConnectMethod.invoke(null, widget, event, new java.lang.Boolean(false))
   }
 }
 
 
 object DrawingApp extends App {
+  import Workarounds._
+
   Gtk.init(null)
 
   def withContext(surface: Surface)(op: Context => Unit) = {
@@ -50,7 +49,7 @@ object DrawingApp extends App {
     try {
       op(cr)
     } finally {
-      Workarounds.releaseContext(cr)
+      cr.release()
     }
   }
 
@@ -80,10 +79,10 @@ object DrawingApp extends App {
         cr.setSource(oldSurface, 0, 0)
         cr.paint()
       }
-      Workarounds releaseSurface oldSurface
+      oldSurface.release()
     } catch {
       case e: Exception =>
-        Workarounds releaseSurface newSurface
+        newSurface.release()
         throw e
     }
     newSurface
@@ -127,7 +126,7 @@ object DrawingApp extends App {
           false
         }
       })
-      Workarounds.connect(drawingArea, new Window.ConfigureEvent {
+      drawingArea.connect(new Window.ConfigureEvent {
         def onConfigureEvent(source: Widget, event: EventConfigure ) = {
           if (null != drawingSurface) {
             drawingSurface = resizeSurface(drawingSurface,
