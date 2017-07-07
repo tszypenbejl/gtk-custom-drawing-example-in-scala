@@ -1,7 +1,7 @@
 package io.github.tszypenbejl.gtkcustomdrawingexample
 
-import org.gnome.gtk.{Application, Button, DrawingArea, Frame, Gtk, ShadowType, VBox, Widget, Window}
-import org.gnome.gdk.{Event, EventButton, EventConfigure, EventMask, EventMotion, MouseButton}
+import org.gnome.gtk.{Application, Button, ColorButton, DrawingArea, Frame, Gtk, HBox, ShadowType, VBox, Widget, Window}
+import org.gnome.gdk.{Event, EventButton, EventConfigure, EventMask, EventMotion, MouseButton, RGBA}
 import org.freedesktop.cairo.{Content, Context, Surface}
 
 
@@ -59,12 +59,13 @@ object DrawingApp extends App {
       cr.paint()
     }
   }
-  
-  def drawBrush(surface: Surface, w: Widget, x: Double, y: Double) = {
+
+  def drawBrush(surface: Surface, color: RGBA, w: Widget, x: Double, y: Double) = {
     val brushSize = 6;
     val rectX = x.toInt - brushSize / 2
     val rectY = y.toInt - brushSize / 2
     withContext(surface) { cr =>
+      cr.setSource(color)
       cr.rectangle(rectX, rectY, brushSize, brushSize)
       cr.fill()
     }
@@ -93,7 +94,17 @@ object DrawingApp extends App {
   gtkApp.connect(new Application.Startup {
     override def onStartup(source: Application): Unit = {
       val window = new Window
-      source.addWindow(window)
+      val vBox = new VBox(false, 3)
+      val frame = new Frame(null)
+      val drawingArea = new DrawingArea
+      val hBox = new HBox(true, 1)
+      val leftColorButton = new ColorButton
+      val rightColorButton = new ColorButton
+      val clearButton = new Button("Clear")
+
+      var drawingSurface: Surface = null
+      var lastColor = RGBA.BLACK
+
       window.setTitle("Drawing Area")
       window.setBorderWidth(8)
       window.connect(new Window.DeleteEvent {
@@ -103,16 +114,13 @@ object DrawingApp extends App {
         }
       })
 
-      val vbox = new VBox(false, 3)
-      window.add(vbox)
-
-      val frame = new Frame(null)
       frame.setShadowType(ShadowType.IN)
-      vbox.packStart(frame, true, true, 0)
+      leftColorButton.setRGBA(RGBA.BLACK)
+      rightColorButton.setRGBA(RGBA.WHITE)
+      clearButton.connect(new Button.Clicked {
+        override def onClicked(source: Button): Unit = { clearSurface(drawingSurface); drawingArea.queueDraw() }
+      })
 
-      var drawingSurface: Surface = null
-
-      val drawingArea = new DrawingArea
       drawingArea.setSizeRequest(300, 200)
       drawingArea.connect(new Widget.Draw {
         override def onDraw(source: Widget, cr: Context) = {
@@ -137,38 +145,43 @@ object DrawingApp extends App {
       })
       drawingArea.connect(new Widget.MotionNotifyEvent {
         def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
-          if (null != drawingSurface)
-            drawBrush(drawingSurface, source, event.getX, event.getY)
+          if (null != drawingSurface) {
+            drawBrush(drawingSurface, lastColor, source, event.getX, event.getY)
+          }
           null != drawingSurface
         }
       })
       drawingArea.connect(new Widget.ButtonPressEvent {
         def onButtonPressEvent(source: Widget, event: EventButton) = {
-          if (null != drawingSurface) {
-            event.getButton match {
-              case MouseButton.LEFT => drawBrush(drawingSurface, source, event.getX, event.getY)
-              case MouseButton.RIGHT => { clearSurface(drawingSurface); source.queueDraw() }
-              case _ => ()
-            }
+          val doDraw = drawBrush(drawingSurface, _: RGBA, source, event.getX, event.getY)
+          if (null != drawingSurface) event.getButton match {
+            case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doDraw(lastColor) }
+            case MouseButton.RIGHT => { lastColor = rightColorButton.getRGBA; doDraw(lastColor) }
+            case _ => ()
           }
           null != drawingSurface
         }
       })
       drawingArea.addEvents(EventMask.BUTTON_PRESS)
       drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
-      frame.add(drawingArea)
+      drawingArea.addEvents(EventMask.RIGHT_BUTTON_MOTION)
 
-      val button = new Button("Quit")
-      button.connect(new Button.Clicked {
-        override def onClicked(source: Button): Unit = window.destroy()
-      })
-      vbox.packStart(button, false, false, 0)
+      hBox.add(leftColorButton)
+      hBox.add(rightColorButton)
+      hBox.add(clearButton)
+      frame.add(drawingArea)
+      vBox.packStart(frame, true, true, 0)
+      vBox.packStart(hBox, false, false, 0)
+      window.add(vBox)
+      source.addWindow(window)
 
       window.showAll()
     }
   })
+
   gtkApp.connect(new Application.Activate {
     override def onActivate(source: Application): Unit = ()
   })
+
   System.exit(gtkApp.run(args))
 }

@@ -1,6 +1,8 @@
 # gtk-custom-drawing-example-in-scala
 
-This is a Scala port of the example application from https://developer.gnome.org/gtk3/stable/ch01s05.html
+This is a Scala port of the example application from
+https://developer.gnome.org/gtk3/stable/ch01s05.html
+with a few minor improvements.
 
 The java-gnome User Interface Library is needed to build and run the example.
 On Ubuntu just install libjava-gnome-java. On other systems please make sure
