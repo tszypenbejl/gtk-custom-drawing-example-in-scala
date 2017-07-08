@@ -39,8 +39,70 @@ private object Workarounds {
 }
 
 
+private object Decorations {
+  import Workarounds._
+
+  implicit class WidgetDecorator(widget: Widget) {
+    import Widget._
+
+    def connectDraw(callback: (Widget, Context) => Boolean) = widget.connect(
+      new Draw {
+        override def onDraw(source: Widget, cr: Context): Boolean = callback(source, cr)
+      })
+
+    def connectButtonPressEvent(callback: (Widget, EventButton) => Boolean) = widget.connect(
+      new ButtonPressEvent {
+        override def onButtonPressEvent(source: Widget, event: EventButton): Boolean = callback(source, event)
+      })
+
+    def connectMotionNotifyEvent(callback: (Widget, EventMotion) => Boolean) = widget.connect(
+      new MotionNotifyEvent {
+        override def onMotionNotifyEvent(source: Widget, event: EventMotion): Boolean = callback(source, event)
+      })
+
+    def connectConfigureEvent(callback: (Widget, EventConfigure) => Boolean) = widget.connect(
+      new Window.ConfigureEvent {
+        override def onConfigureEvent(source: Widget, event: EventConfigure): Boolean = callback(source, event)
+      })
+  }
+
+
+  implicit class ButtonDecorator(button: Button) {
+    import Button._
+    def connectClicked(callback: (Button) => Unit) = button.connect(new Clicked {
+      override def onClicked(source: Button): Unit = callback(source)
+    })
+  }
+
+
+  implicit class WindowDecorator(window: Window) {
+    import Window._
+    def connectDeleteEvent(callback: (Widget, Event) => Boolean) = window.connect(new DeleteEvent {
+      override def onDeleteEvent(source: Widget, event: Event): Boolean = callback(source, event)
+    })
+  }
+
+
+  implicit class ApplicationDecorator(application: Application) {
+    import Application._
+
+    def connectStartup(callback: (Application) => Unit) = application.connect(
+      new Startup {
+        override def onStartup(source: Application): Unit = callback(source)
+      })
+
+    def connectActivate(callback: (Application) => Unit) = application.connect(
+      new Activate {
+        override def onActivate(source: Application): Unit = callback(source)
+      }
+    )
+  }
+}
+
+
 object DrawingApp extends App {
   import Workarounds._
+  import Decorations._
 
   Gtk.init(null)
 
@@ -91,97 +153,77 @@ object DrawingApp extends App {
 
 
   val gtkApp = new Application("io.github.tszypenbejl.gtkcustomdrawingexample")
-  gtkApp.connect(new Application.Startup {
-    override def onStartup(source: Application): Unit = {
-      val window = new Window
-      val vBox = new VBox(false, 3)
-      val frame = new Frame(null)
-      val drawingArea = new DrawingArea
-      val hBox = new HBox(true, 1)
-      val leftColorButton = new ColorButton
-      val rightColorButton = new ColorButton
-      val clearButton = new Button("Clear")
+  gtkApp.connectStartup((source: Application) => {
+    val window = new Window
+    val vBox = new VBox(false, 3)
+    val frame = new Frame(null)
+    val drawingArea = new DrawingArea
+    val hBox = new HBox(true, 1)
+    val leftColorButton = new ColorButton
+    val rightColorButton = new ColorButton
+    val clearButton = new Button("Clear")
 
-      var drawingSurface: Surface = null
-      var lastColor = RGBA.BLACK
+    var drawingSurface: Surface = null
+    var lastColor = RGBA.BLACK
 
-      window.setTitle("Drawing Area")
-      window.setBorderWidth(8)
-      window.connect(new Window.DeleteEvent {
-        override def onDeleteEvent(source: Widget, event: Event): Boolean = {
-          source.destroy()
-          true
-        }
-      })
+    window.setTitle("Drawing Area")
+    window.setBorderWidth(8)
+    window.connectDeleteEvent((source: Widget, _: Event) => { source.destroy(); true })
 
-      frame.setShadowType(ShadowType.IN)
-      leftColorButton.setRGBA(RGBA.BLACK)
-      rightColorButton.setRGBA(RGBA.WHITE)
-      clearButton.connect(new Button.Clicked {
-        override def onClicked(source: Button): Unit = { clearSurface(drawingSurface); drawingArea.queueDraw() }
-      })
+    frame.setShadowType(ShadowType.IN)
+    leftColorButton.setRGBA(RGBA.BLACK)
+    rightColorButton.setRGBA(RGBA.WHITE)
+    clearButton.connectClicked((_: Button) => { clearSurface(drawingSurface); drawingArea.queueDraw() })
 
-      drawingArea.setSizeRequest(300, 200)
-      drawingArea.connect(new Widget.Draw {
-        override def onDraw(source: Widget, cr: Context) = {
-          if (null == drawingSurface) {
-            drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
-              source.getAllocatedWidth, source.getAllocatedHeight)
-            clearSurface(drawingSurface)
-          }
-          cr.setSource(drawingSurface, 0, 0)
-          cr.paint()
-          false
-        }
-      })
-      drawingArea.connect(new Window.ConfigureEvent {
-        def onConfigureEvent(source: Widget, event: EventConfigure ) = {
-          if (null != drawingSurface) {
-            drawingSurface = resizeSurface(drawingSurface,
-              source.getAllocatedWidth, source.getAllocatedHeight)
-          }
-          true
-        }
-      })
-      drawingArea.connect(new Widget.MotionNotifyEvent {
-        def onMotionNotifyEvent(source: Widget, event: EventMotion) = {
-          if (null != drawingSurface) {
-            drawBrush(drawingSurface, lastColor, source, event.getX, event.getY)
-          }
-          null != drawingSurface
-        }
-      })
-      drawingArea.connect(new Widget.ButtonPressEvent {
-        def onButtonPressEvent(source: Widget, event: EventButton) = {
-          val doDraw = drawBrush(drawingSurface, _: RGBA, source, event.getX, event.getY)
-          if (null != drawingSurface) event.getButton match {
-            case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doDraw(lastColor) }
-            case MouseButton.RIGHT => { lastColor = rightColorButton.getRGBA; doDraw(lastColor) }
-            case _ => ()
-          }
-          null != drawingSurface
-        }
-      })
-      drawingArea.addEvents(EventMask.BUTTON_PRESS)
-      drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
-      drawingArea.addEvents(EventMask.RIGHT_BUTTON_MOTION)
+    drawingArea.setSizeRequest(300, 200)
+    drawingArea.connectDraw((source: Widget, cr: Context) => {
+      if (null == drawingSurface) {
+        drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
+          source.getAllocatedWidth, source.getAllocatedHeight)
+        clearSurface(drawingSurface)
+      }
+      cr.setSource(drawingSurface, 0, 0)
+      cr.paint()
+      false
+    })
+    drawingArea.connectConfigureEvent((source: Widget, event: EventConfigure) => {
+      if (null != drawingSurface) {
+        drawingSurface = resizeSurface(drawingSurface,
+          source.getAllocatedWidth, source.getAllocatedHeight)
+      }
+      true
+    })
+    drawingArea.connectMotionNotifyEvent((source: Widget, event: EventMotion) => {
+      if (null != drawingSurface) {
+        drawBrush(drawingSurface, lastColor, source, event.getX, event.getY)
+      }
+      null != drawingSurface
+    })
+    drawingArea.connectButtonPressEvent((source: Widget, event: EventButton) => {
+      val doDraw = drawBrush(drawingSurface, _: RGBA, source, event.getX, event.getY)
+      if (null != drawingSurface) event.getButton match {
+        case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doDraw(lastColor) }
+        case MouseButton.RIGHT => { lastColor = rightColorButton.getRGBA; doDraw(lastColor) }
+        case _ => ()
+      }
+      null != drawingSurface
+    })
+    drawingArea.addEvents(EventMask.BUTTON_PRESS)
+    drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
+    drawingArea.addEvents(EventMask.RIGHT_BUTTON_MOTION)
 
-      hBox.add(leftColorButton)
-      hBox.add(rightColorButton)
-      hBox.add(clearButton)
-      frame.add(drawingArea)
-      vBox.packStart(frame, true, true, 0)
-      vBox.packStart(hBox, false, false, 0)
-      window.add(vBox)
-      source.addWindow(window)
+    hBox.add(leftColorButton)
+    hBox.add(rightColorButton)
+    hBox.add(clearButton)
+    frame.add(drawingArea)
+    vBox.packStart(frame, true, true, 0)
+    vBox.packStart(hBox, false, false, 0)
+    window.add(vBox)
+    source.addWindow(window)
 
-      window.showAll()
-    }
+    window.showAll()
   })
 
-  gtkApp.connect(new Application.Activate {
-    override def onActivate(source: Application): Unit = ()
-  })
-
+  gtkApp.connectActivate((_: Application) => ()) // plenty of stderr messages if I skip this
   System.exit(gtkApp.run(args))
 }
