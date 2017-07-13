@@ -177,14 +177,20 @@ object DrawingApp extends App {
 
     drawingArea.setSizeRequest(300, 200)
     drawingArea.connectDraw((source: Widget, cr: Context) => {
-      if (null == drawingSurface) {
-        drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
-          source.getAllocatedWidth, source.getAllocatedHeight)
-        clearSurface(drawingSurface)
+      try {
+        if (null == drawingSurface) {
+          drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
+            source.getAllocatedWidth, source.getAllocatedHeight)
+          clearSurface(drawingSurface)
+        }
+        cr.setSource(drawingSurface, 0, 0)
+        cr.paint()
+      } finally {
+        // Strangely, I really need this. Without the release() my shared memory usage reported by 'free'
+        // (the linux/unix command) keeps growing infinitely with every widget redraw.
+        cr.release()
       }
-      cr.setSource(drawingSurface, 0, 0)
-      cr.paint()
-      false
+      true // Context has been destroyed, it seems safer not to propagate the event further.
     })
     drawingArea.connectConfigureEvent((source: Widget, event: EventConfigure) => {
       if (null != drawingSurface) {
