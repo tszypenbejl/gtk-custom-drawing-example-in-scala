@@ -2,7 +2,7 @@ package io.github.tszypenbejl.gtkcustomdrawingexample
 
 import org.gnome.gtk.{Application, Button, ColorButton, DrawingArea, Frame, Gtk, HBox, ShadowType, VBox, Widget, Window}
 import org.gnome.gdk.{Event, EventButton, EventConfigure, EventMask, EventMotion, MouseButton, RGBA}
-import org.freedesktop.cairo.{Content, Context, Surface}
+import org.freedesktop.cairo.{Antialias, Content, Context, Surface}
 
 
 private object Workarounds {
@@ -106,54 +106,102 @@ object DrawingApp extends App {
 
   Gtk.init(null)
 
-  def withContext(surface: Surface)(op: Context => Unit) = {
-    val cr = new Context(surface)
-    try {
-      op(cr)
-    } finally {
-      cr.release()
-    }
-  }
 
-  def clearSurface(surface: Surface) = {
-    withContext(surface) { cr =>
-      cr.setSource(1, 1, 1)
-      cr.paint()
-    }
-  }
+  private object Picture {
+    private val brushSize = 6;
+    private val halfBrushSize = brushSize / 2;
 
-  def drawBrush(surface: Surface, color: RGBA, w: Widget, x: Double, y: Double) = {
-    val brushSize = 6;
-    val rectX = x.toInt - brushSize / 2
-    val rectY = y.toInt - brushSize / 2
-    withContext(surface) { cr =>
-      cr.setSource(color)
-      cr.rectangle(rectX, rectY, brushSize, brushSize)
-      cr.fill()
-    }
-    w.queueDrawArea(rectX, rectY, brushSize, brushSize)
-  }
+    private var mySurface: Surface = null
+    private var previousPoint: (Int, Int) = null
 
-  def resizeSurface(oldSurface: Surface, width: Int, height: Int) = {
-    val newSurface = oldSurface.createSimilar(Content.COLOR, width, height)
-    try {
-      clearSurface(newSurface)
-      withContext(newSurface) { cr =>
-        cr.setSource(oldSurface, 0, 0)
+    private def withContext(s: Surface)(op: Context => Unit) = {
+      val cr = new Context(s)
+      try {
+        op(cr)
+      } finally {
+        cr.release()
+      }
+    }
+
+    private def clearSurface(s: Surface) = {
+      withContext(s) { cr =>
+        cr.setSource(1, 1, 1)
         cr.paint()
       }
-      oldSurface.release()
-    } catch {
-      case e: Exception =>
-        newSurface.release()
-        throw e
     }
-    newSurface
+
+    private def initialize(widgetCr: Context, width: Int, height: Int) = {
+      mySurface = widgetCr.getTarget.createSimilar(Content.COLOR, width, height)
+      clearSurface(mySurface)
+    }
+
+    def initialized: Boolean = mySurface ne null
+
+    def drawTo(widgetCr: Context, width: Int, height: Int): Unit = {
+      if (mySurface eq null) initialize(widgetCr, width, height)
+      widgetCr.setSource(mySurface, 0, 0)
+      widgetCr.paint()
+    }
+
+    def clear(): Unit = { if (initialized) clearSurface(mySurface) }
+
+    def drawDot(color: RGBA, x: Int, y: Int): (Int, Int, Int, Int) = {
+      if (initialized) {
+        withContext(mySurface) { cr =>
+          cr.setAntialias(Antialias.NONE)
+          cr.setSource(color)
+          cr.arc(x.toInt, y.toInt, halfBrushSize, 0, 2 * Math.PI)
+          cr.fill()
+        }
+        previousPoint = (x.toInt, y.toInt)
+        (x - halfBrushSize, y - halfBrushSize, brushSize, brushSize)
+      } else {
+        (0, 0, 0, 0)
+      }
+    }
+
+    def drawLine(color: RGBA, x: Int, y: Int): (Int, Int, Int, Int) = {
+      if (initialized && (previousPoint ne null)) {
+        withContext(mySurface) { cr =>
+          cr.setAntialias(Antialias.NONE)
+          cr.setSource(color)
+          cr.arc(x.toInt, y.toInt, halfBrushSize, 0, 2 * Math.PI)
+          cr.fill()
+          cr.setLineWidth(brushSize)
+          cr.moveTo(x.toInt, y.toInt)
+          cr.lineTo(previousPoint._1, previousPoint._2)
+          cr.stroke()
+        }
+        val leftX :: rightX :: _ = List(x, previousPoint._1).sorted
+        val topY :: bottomY :: _ = List(y, previousPoint._2).sorted
+        val deltaX = rightX - leftX
+        val deltaY = bottomY - topY
+        previousPoint = (x.toInt, y.toInt)
+        (leftX - halfBrushSize, topY - halfBrushSize, deltaX + brushSize, deltaY + brushSize)
+      } else {
+        (0, 0, 0, 0)
+      }
+    }
+
+    def resize(width: Int, height: Int): Unit = {
+      if (initialized) {
+        val newSurface = mySurface.createSimilar(Content.COLOR, width, height)
+        try {
+          clearSurface(newSurface)
+          withContext(newSurface) { drawTo(_, width, height) }
+          mySurface.release()
+          mySurface = newSurface
+        } finally {
+          if (newSurface ne mySurface) newSurface.release()
+        }
+      }
+    }
   }
 
 
-  val gtkApp = new Application("io.github.tszypenbejl.gtkcustomdrawingexample")
-  gtkApp.connectStartup((source: Application) => {
+  private val gtkApp = new Application("io.github.tszypenbejl.gtkcustomdrawingexample")
+
+  gtkApp.connectStartup((sourceApp) => {
     val window = new Window
     val vBox = new VBox(false, 3)
     val frame = new Frame(null)
@@ -163,28 +211,21 @@ object DrawingApp extends App {
     val rightColorButton = new ColorButton
     val clearButton = new Button("Clear")
 
-    var drawingSurface: Surface = null
     var lastColor = RGBA.BLACK
 
     window.setTitle("Drawing Area")
     window.setBorderWidth(8)
-    window.connectDeleteEvent((source: Widget, _: Event) => { source.destroy(); true })
+    window.connectDeleteEvent((source, _) => { source.destroy(); true })
 
     frame.setShadowType(ShadowType.IN)
     leftColorButton.setRGBA(RGBA.BLACK)
     rightColorButton.setRGBA(RGBA.WHITE)
-    clearButton.connectClicked((_: Button) => { clearSurface(drawingSurface); drawingArea.queueDraw() })
+    clearButton.connectClicked(_ => { Picture.clear(); drawingArea.queueDraw() })
 
     drawingArea.setSizeRequest(300, 200)
-    drawingArea.connectDraw((source: Widget, cr: Context) => {
+    drawingArea.connectDraw((source, cr) => {
       try {
-        if (null == drawingSurface) {
-          drawingSurface = cr.getTarget.createSimilar(Content.COLOR,
-            source.getAllocatedWidth, source.getAllocatedHeight)
-          clearSurface(drawingSurface)
-        }
-        cr.setSource(drawingSurface, 0, 0)
-        cr.paint()
+        Picture.drawTo(cr, source.getAllocatedWidth, source.getAllocatedHeight)
       } finally {
         // Strangely, I really need this. Without the release() my shared memory usage reported by 'free'
         // (the linux/unix command) keeps growing infinitely with every widget redraw.
@@ -192,27 +233,24 @@ object DrawingApp extends App {
       }
       true // Context has been destroyed, it seems safer not to propagate the event further.
     })
-    drawingArea.connectConfigureEvent((source: Widget, event: EventConfigure) => {
-      if (null != drawingSurface) {
-        drawingSurface = resizeSurface(drawingSurface,
-          source.getAllocatedWidth, source.getAllocatedHeight)
-      }
+    drawingArea.connectConfigureEvent((source, _) => {
+      Picture.resize(source.getAllocatedWidth, source.getAllocatedHeight)
       true
     })
-    drawingArea.connectMotionNotifyEvent((source: Widget, event: EventMotion) => {
-      if (null != drawingSurface) {
-        drawBrush(drawingSurface, lastColor, source, event.getX, event.getY)
-      }
-      null != drawingSurface
+    drawingArea.connectMotionNotifyEvent((source, event) => {
+      val updatedRect = Picture.drawLine(lastColor, event.getX.toInt, event.getY.toInt)
+      (source.queueDrawArea _).tupled(updatedRect)
+      true
     })
-    drawingArea.connectButtonPressEvent((source: Widget, event: EventButton) => {
-      val doDraw = drawBrush(drawingSurface, _: RGBA, source, event.getX, event.getY)
-      if (null != drawingSurface) event.getButton match {
-        case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doDraw(lastColor) }
-        case MouseButton.RIGHT => { lastColor = rightColorButton.getRGBA; doDraw(lastColor) }
+    drawingArea.connectButtonPressEvent((source, event) => {
+      val doDraw = Picture.drawDot(_: RGBA, event.getX.toInt, event.getY.toInt)
+      val doQueueDraw = (source.queueDrawArea _).tupled
+      event.getButton match {
+        case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doQueueDraw(doDraw(lastColor)) }
+        case MouseButton.RIGHT => { lastColor = rightColorButton.getRGBA; doQueueDraw(doDraw(lastColor)) }
         case _ => ()
       }
-      null != drawingSurface
+      true
     })
     drawingArea.addEvents(EventMask.BUTTON_PRESS)
     drawingArea.addEvents(EventMask.LEFT_BUTTON_MOTION)
@@ -225,11 +263,10 @@ object DrawingApp extends App {
     vBox.packStart(frame, true, true, 0)
     vBox.packStart(hBox, false, false, 0)
     window.add(vBox)
-    source.addWindow(window)
-
-    window.showAll()
+    sourceApp.addWindow(window)
   })
+  gtkApp.connectActivate(source => source.getWindows.foreach(_.showAll()))
 
-  gtkApp.connectActivate((_: Application) => ()) // plenty of stderr messages if I skip this
+
   System.exit(gtkApp.run(args))
 }
