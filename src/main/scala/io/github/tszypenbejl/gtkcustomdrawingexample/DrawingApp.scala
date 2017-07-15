@@ -6,8 +6,6 @@ import org.freedesktop.cairo.{Antialias, Content, Context, Surface}
 
 
 private object Workarounds {
-  private val surfaceReleaseMethod =
-    Class.forName("org.freedesktop.cairo.Surface").getDeclaredMethod("release")
   private val contextReleaseMethod =
     Class.forName("org.freedesktop.cairo.Context").getDeclaredMethod("release")
   private val gtkWidgetConnectMethod =
@@ -16,14 +14,8 @@ private object Workarounds {
       Class.forName("org.gnome.gtk.GtkWidget$ConfigureEventSignal"),
       false.getClass)
 
-  surfaceReleaseMethod.setAccessible(true)
   contextReleaseMethod.setAccessible(true)
   gtkWidgetConnectMethod.setAccessible(true)
-
-  // Surface.release method is protected for some reason.
-  implicit class SurfaceWorkarounds(surface: Surface) {
-    def release() = surfaceReleaseMethod.invoke(surface)
-  }
 
   // Context.release method is protected for some reason.
   implicit class ContextWorkarounds(context: Context) {
@@ -189,8 +181,7 @@ object DrawingApp extends App {
         try {
           clearSurface(newSurface)
           withContext(newSurface) { drawTo(_, width, height) }
-          mySurface.finish()  // release() should be sufficient but for some reason shared memory usage keeps
-          mySurface.release() // growing fast on window resizes if I skip the call finish().
+          mySurface.finish()
           mySurface = newSurface
         } finally {
           if (newSurface ne mySurface) newSurface.finish()
@@ -227,15 +218,14 @@ object DrawingApp extends App {
 
     drawingArea.setSizeRequest(300, 200)
     drawingArea.connectDraw((source, cr) => {
-      try {
-        picture.drawTo(cr, source.getAllocatedWidth, source.getAllocatedHeight)
-      } finally {
-        // Strangely, I really need this. Without the release() my shared memory usage reported by 'free'
-        // (the linux/unix command) keeps growing infinitely with every widget redraw.
-        // Apparently there is some bug in reference counting for Cairo context that this extra release() fixes.
-        cr.release()
-      }
-      true // Context has been destroyed, it seems safer not to propagate the event further.
+      picture.drawTo(cr, source.getAllocatedWidth, source.getAllocatedHeight)
+      cr.release()
+      // Strangely, I really need the line above. Without the release() my shared memory usage reported by 'free'
+      // (the linux/unix command) keeps growing infinitely with every widget redraw.
+      // Apparently there is some bug in reference counting for Cairo context that this extra release() fixes.
+      // I am getting a SIGABRT on program exit because of this release, but that only happens if I explicitly call
+      // System.gc() during program lifetime.
+      false
     })
     drawingArea.connectConfigureEvent((source, _) => {
       picture.resize(source.getAllocatedWidth, source.getAllocatedHeight)
