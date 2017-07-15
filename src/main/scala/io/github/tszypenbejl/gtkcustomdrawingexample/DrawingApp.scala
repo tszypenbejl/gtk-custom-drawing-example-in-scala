@@ -189,10 +189,11 @@ object DrawingApp extends App {
         try {
           clearSurface(newSurface)
           withContext(newSurface) { drawTo(_, width, height) }
-          mySurface.release()
+          mySurface.finish()  // release() should be sufficient but for some reason shared memory usage keeps
+          mySurface.release() // growing fast on window resizes if I skip the call finish().
           mySurface = newSurface
         } finally {
-          if (newSurface ne mySurface) newSurface.release()
+          if (newSurface ne mySurface) newSurface.finish()
         }
       }
     }
@@ -229,6 +230,7 @@ object DrawingApp extends App {
       } finally {
         // Strangely, I really need this. Without the release() my shared memory usage reported by 'free'
         // (the linux/unix command) keeps growing infinitely with every widget redraw.
+        // Apparently there is some bug in reference counting for Cairo context that this extra release() fixes.
         cr.release()
       }
       true // Context has been destroyed, it seems safer not to propagate the event further.
