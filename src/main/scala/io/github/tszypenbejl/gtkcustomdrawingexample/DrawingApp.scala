@@ -107,7 +107,7 @@ object DrawingApp extends App {
   Gtk.init(null)
 
 
-  private object Picture {
+  private class Picture {
     private val brushSize = 6;
     private val halfBrushSize = brushSize / 2;
 
@@ -202,7 +202,7 @@ object DrawingApp extends App {
 
   private val gtkApp = new Application("io.github.tszypenbejl.gtkcustomdrawingexample")
 
-  gtkApp.connectStartup((sourceApp) => {
+  gtkApp.connectActivate((sourceApp) => {
     val window = new Window
     val vBox = new VBox(false, 3)
     val frame = new Frame(null)
@@ -211,6 +211,8 @@ object DrawingApp extends App {
     val leftColorButton = new ColorButton
     val rightColorButton = new ColorButton
     val clearButton = new Button("Clear")
+
+    val picture = new Picture
 
     var lastColor = RGBA.BLACK
 
@@ -221,12 +223,12 @@ object DrawingApp extends App {
     frame.setShadowType(ShadowType.IN)
     leftColorButton.setRGBA(RGBA.BLACK)
     rightColorButton.setRGBA(RGBA.WHITE)
-    clearButton.connectClicked(_ => { Picture.clear(); drawingArea.queueDraw() })
+    clearButton.connectClicked(_ => { picture.clear(); drawingArea.queueDraw() })
 
     drawingArea.setSizeRequest(300, 200)
     drawingArea.connectDraw((source, cr) => {
       try {
-        Picture.drawTo(cr, source.getAllocatedWidth, source.getAllocatedHeight)
+        picture.drawTo(cr, source.getAllocatedWidth, source.getAllocatedHeight)
       } finally {
         // Strangely, I really need this. Without the release() my shared memory usage reported by 'free'
         // (the linux/unix command) keeps growing infinitely with every widget redraw.
@@ -236,16 +238,16 @@ object DrawingApp extends App {
       true // Context has been destroyed, it seems safer not to propagate the event further.
     })
     drawingArea.connectConfigureEvent((source, _) => {
-      Picture.resize(source.getAllocatedWidth, source.getAllocatedHeight)
+      picture.resize(source.getAllocatedWidth, source.getAllocatedHeight)
       true
     })
     drawingArea.connectMotionNotifyEvent((source, event) => {
-      val updatedRect = Picture.drawLine(lastColor, event.getX.toInt, event.getY.toInt)
+      val updatedRect = picture.drawLine(lastColor, event.getX.toInt, event.getY.toInt)
       (source.queueDrawArea _).tupled(updatedRect)
       true
     })
     drawingArea.connectButtonPressEvent((source, event) => {
-      val doDraw = Picture.drawDot(_: RGBA, event.getX.toInt, event.getY.toInt)
+      val doDraw = picture.drawDot(_: RGBA, event.getX.toInt, event.getY.toInt)
       val doQueueDraw = (source.queueDrawArea _).tupled
       event.getButton match {
         case MouseButton.LEFT => { lastColor = leftColorButton.getRGBA; doQueueDraw(doDraw(lastColor)) }
@@ -266,9 +268,9 @@ object DrawingApp extends App {
     vBox.packStart(hBox, false, false, 0)
     window.add(vBox)
     sourceApp.addWindow(window)
-  })
-  gtkApp.connectActivate(source => source.getWindows.foreach(_.showAll()))
 
+    window.showAll()
+  })
 
   System.exit(gtkApp.run(args))
 }
